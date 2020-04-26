@@ -13,6 +13,8 @@ import Control.Applicative ((<|>))
 import Control.Monad (guard)
 import Data.Maybe (fromMaybe)
 
+import Selector
+
 type Attr = (Text, Maybe [Text])
 
 data ElementData = EData
@@ -100,16 +102,6 @@ pretty = go 0
                 <> "\n"
                 <> foldMap (go (level + 1)) children
 
-data Selector
-    = Elem Text
-    | Class Text
-    | Attribute Text (Maybe [Text])
-    | Child Selector Selector
-    | Descendant Selector Selector
-    | ImmediateSibling Selector Selector
-    | Sibling Selector Selector
-    | AnyElement
-
 parent :: Zipper -> Maybe Zipper
 parent (_, []) = Nothing
 parent (element, Crumb content ls rs : crumbs) =
@@ -135,6 +127,7 @@ eqAttr _ (_, Nothing) = False
 eqAttr (nameA, Just valueA) (nameB, Just valueB) = nameA == nameB && valueA == valueB
 
 match :: Selector -> Zipper -> Maybe Element
+match AnyElement (element, _) = pure element
 match (Elem elName) (element@Element {content = EData {name}}, _) = do
   guard $ name == elName
   pure element
@@ -156,7 +149,8 @@ match (ImmediateSibling siblingSelector selector) zipper = do
   match siblingSelector siblingZipper `mandr` match selector zipper
 match (Sibling siblingSelector selector) zipper =
   matchPreceding siblingSelector zipper `mandr` match selector zipper
-match AnyElement (element, _) = pure element
+match (And selectorA selectorB) zipper =
+  match selectorA zipper `mandr` match selectorB zipper
 
 matchTree :: Selector -> Zipper -> [Element]
 matchTree selector =
