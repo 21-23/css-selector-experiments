@@ -182,10 +182,10 @@ countRange n m p = count n p <> upto (m - n) p
 
 charClass :: String -> String
 charClass = go
- where
-  go (a : '-' : b : xs) = [a .. b] ++ go xs
-  go (x           : xs) = x : go xs
-  go _                  = ""
+  where
+    go (a : '-' : b : xs) = [a .. b] ++ go xs
+    go (x           : xs) = x : go xs
+    go _                  = ""
 
 inClass :: String -> Char -> Bool
 inClass classString = (`elem` charClass classString)
@@ -234,7 +234,7 @@ nmstart
  -- ident     [-]?{nmstart}{nmchar}*
 ident :: Parser Text
 ident
-  =  tryOrEmpty (singleton <$> char '-')
+  =  tryOrEmpty "-"
   <> nmstart
   <> (fold <$> many nmchar)
 
@@ -272,11 +272,11 @@ string1
 string2 :: Parser Text
 string2 = "'" <> (fold <$> many characters) <> "'"
  where
-  characters =
-    try (singleton <$> satisfy (notInClass "\n\r\f'"))
-      <|> try ("\\" <> nl)
-      <|> try (singleton <$> nonascii)
-      <|> escape
+  characters
+    =   try (singleton <$> satisfy (notInClass "\n\r\f'"))
+    <|> try ("\\" <> nl)
+    <|> try (singleton <$> nonascii)
+    <|> escape
 
 -- string    {string1}|{string2}
 string_ :: Parser Text
@@ -443,15 +443,16 @@ attrib = do
   space
   mAttrValue <- optional $ do
       operator <- try (string attrPrefixMatch)
-          <|> try (string attrEquals)
-          <|> try (string attrSuffixMatch)
-          <|> try (string attrSubstrMatch)
-          <|> try (string attrIncludes)
-          <|> string attrDashMatch
+                  <|> try (string attrEquals)
+                  <|> try (string attrSuffixMatch)
+                  <|> try (string attrSubstrMatch)
+                  <|> try (string attrIncludes)
+                  <|> string attrDashMatch
       space
       value <- try ident <|> string_
       space
       pure (operator, value)
+  void "]"
   pure $ case mAttrValue of
     Nothing                -> Attr attrName Nothing
     Just (operator, value) -> fromAttrOp operator value
@@ -498,7 +499,7 @@ pseudoClass = do
     <|> try ("last-of-type"     >> pure PseudoClassLastOfType)
     <|> try ("only-child"       >> pure PseudoClassOnlyChild)
     <|> try ("only-of-type"     >> pure PseudoClassOnlyOfType)
-    <|> (    "empty"            >> pure PseudoClassEmpty)
+    <|>     ("empty"            >> pure PseudoClassEmpty)
 
 {-
   negation
@@ -555,10 +556,10 @@ data Combinator = ImmediateSibling | Child | Sibling | Descendant deriving Show
 -}
 combinator :: Parser Combinator
 combinator
-  =   (try (plus    <* space)  >> pure ImmediateSibling)
-  <|> (try (greater <* space)  >> pure Child)
-  <|> (try (tilde   <* space)  >> pure Sibling)
-  <|> (pack <$> some spaceChar >> pure Descendant)
+  =   (try (plus    <* space) >> pure ImmediateSibling)
+  <|> (try (greater <* space) >> pure Child)
+  <|> (try (tilde   <* space) >> pure Sibling)
+  <|>      (some spaceChar    >> pure Descendant)
 
 {-
   selector
