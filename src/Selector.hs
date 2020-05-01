@@ -412,14 +412,15 @@ attrSubstrMatch = "*="
 attrEquals :: Text
 attrEquals = "="
 
-fromAttrOp :: Text -> Text -> Selector
-fromAttrOp op value | op == attrIncludes    = AttrIncludes op value
-                    | op == attrDashMatch   = AttrDashMatch op value
-                    | op == attrPrefixMatch = AttrPrefixMatch op value
-                    | op == attrSuffixMatch = AttrSuffixMatch op value
-                    | op == attrSubstrMatch = AttrSubstrMatch op value
-                    | op == attrEquals      = Attr op (Just value)
-                    | otherwise             = Attr op (Just value)
+fromAttrOp :: Text -> Text -> Text -> Selector
+fromAttrOp attrName op value
+  | op == attrIncludes    = AttrIncludes attrName value
+  | op == attrDashMatch   = AttrDashMatch attrName value
+  | op == attrPrefixMatch = AttrPrefixMatch attrName value
+  | op == attrSuffixMatch = AttrSuffixMatch attrName value
+  | op == attrSubstrMatch = AttrSubstrMatch attrName value
+  | op == attrEquals      = Attr attrName (Just value)
+  | otherwise             = Attr attrName (Just value)
 
 {-
   attrib
@@ -455,7 +456,7 @@ attrib = do
   void "]"
   pure $ case mAttrValue of
     Nothing                -> Attr attrName Nothing
-    Just (operator, value) -> fromAttrOp operator value
+    Just (operator, value) -> fromAttrOp attrName operator value
 
 {-
   negation_arg
