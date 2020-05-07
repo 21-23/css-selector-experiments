@@ -5,66 +5,14 @@ module Selector where
 import Data.Text (Text, singleton, pack)
 import Data.Char (isAscii, isAlphaNum)
 import Data.Foldable (fold)
-import Data.Void (Void)
 import Data.Functor (void)
+import Data.List.NonEmpty (NonEmpty(..), some1)
+
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-data NExpr
-  = Constant Int
-  | Linear Int Int
-  | Odd
-  | Even
-  deriving Show
-
-
-integer :: Parser Int
-integer = read <$> some digitChar
-
-plusOrMinus :: Parser Text
-plusOrMinus = try "-" <|> "+"
-
-signToInt :: Text -> Int
-signToInt "-" = -1
-signToInt _   = 1
-
-{-
-  nth
-    : S* [ ['-'|'+']? INTEGER? {N} [ S* ['-'|'+'] S* INTEGER ]? |
-          ['-'|'+']? INTEGER | {O}{D}{D} | {E}{V}{E}{N} ] S*
-    ;
--}
-
-nExpr :: Parser NExpr
-nExpr = do
-  space
-  expr <- try linear
-      <|> try constant
-      <|> try odd_
-      <|> even_
-  space
-  pure expr
-    where
-      linear = do
-        kSign <- option 1 (try $ signToInt <$> plusOrMinus)
-        k <- option 1 (try integer)
-        void n
-        bPart <- option 0 $ try $ do
-          space
-          bSign <- signToInt <$> plusOrMinus
-          space
-          b <- integer
-          pure $ bSign * b
-        space
-        pure $ Linear (kSign * k) bPart
-
-      constant = do
-        sign <- option 1 (try $ signToInt <$> plusOrMinus)
-        value <- integer
-        pure $ Constant (sign * value)
-
-      odd_ = o >> d >> d >> pure Odd
-      even_ = e >> v >> e >> n >> pure Even
+import Parsing (Parser, tryOrEmpty, n, o, t)
+import NExpr (NExpr, nExpr)
 
 data Selector
     = Universal
@@ -83,8 +31,8 @@ data Selector
     | AttrSuffixMatch Text Text
     | AttrSubstrMatch Text Text
     | Combined Combinator Selector Selector
-    | And [Selector]
-    | Or [Selector]
+    | And (NonEmpty Selector)
+    | Or (NonEmpty Selector)
     -- pseudo-classes
     | Not Selector -- can't be nested
     | PseudoClassLink
@@ -171,8 +119,6 @@ data Selector
   .                return *yytext;
  -}
 
-type Parser = Parsec Void Text
-
 upto :: Int -> Parser a -> Parser [a]
 upto n p | n > 0 = (:) <$> try p <*> upto (n - 1) p <|> pure []
 upto _ _         = pure []
@@ -192,9 +138,6 @@ inClass classString = (`elem` charClass classString)
 
 notInClass :: String -> Char -> Bool
 notInClass classString = (`notElem` charClass classString)
-
-tryOrEmpty :: Parser Text -> Parser Text
-tryOrEmpty p = option "" $ try p
 
 -- nonascii  [^\0-\177]
 nonascii :: Parser Char
@@ -257,26 +200,23 @@ nl
 
 --  string1   \"([^\n\r\f\\"]|\\{nl}|{nonascii}|{escape})*\"
 string1 :: Parser Text
-string1
-  =  "\""
-  <> (fold <$> many characters)
-  <> "\""
-      where
-        characters
-          =   try (singleton <$> satisfy (notInClass "\n\r\f\""))
-          <|> try ("\\" <> nl)
-          <|> try (singleton <$> nonascii)
-          <|> escape
+string1 = between "\"" "\"" (fold <$> many characters)
+            where
+              characters
+                =   try (singleton <$> satisfy (notInClass "\n\r\f\""))
+                <|> try ("\\" <> nl)
+                <|> try (singleton <$> nonascii)
+                <|> escape
 
 --   string2   \'([^\n\r\f\\']|\\{nl}|{nonascii}|{escape})*\'
 string2 :: Parser Text
-string2 = "'" <> (fold <$> many characters) <> "'"
- where
-  characters
-    =   try (singleton <$> satisfy (notInClass "\n\r\f'"))
-    <|> try ("\\" <> nl)
-    <|> try (singleton <$> nonascii)
-    <|> escape
+string2 = between "'" "'" (fold <$> many characters)
+            where
+              characters
+                =   try (singleton <$> satisfy (notInClass "\n\r\f'"))
+                <|> try ("\\" <> nl)
+                <|> try (singleton <$> nonascii)
+                <|> escape
 
 -- string    {string1}|{string2}
 string_ :: Parser Text
@@ -285,33 +225,6 @@ string_ = try string1 <|> string2
 -- w         [ \t\r\n\f]*
 w :: Parser Text
 w = fold <$> many (singleton <$> satisfy (inClass " \t\r\n\f"))
-
-{-
-  D         d|\\0{0,4}(44|64)(\r\n|[ \t\r\n\f])?
-  E         e|\\0{0,4}(45|65)(\r\n|[ \t\r\n\f])?
-  N         n|\\0{0,4}(4e|6e)(\r\n|[ \t\r\n\f])?|\\n
-  O         o|\\0{0,4}(4f|6f)(\r\n|[ \t\r\n\f])?|\\o
-  T         t|\\0{0,4}(54|74)(\r\n|[ \t\r\n\f])?|\\t
-  V         v|\\0{0,4}(58|78)(\r\n|[ \t\r\n\f])?|\\v
--}
-
-d :: Parser Text
-d = "d"
-
-e :: Parser Text
-e = "e"
-
-n :: Parser Text
-n = tryOrEmpty "\\" <> "n"
-
-o :: Parser Text
-o = tryOrEmpty "\\" <> "o"
-
-t :: Parser Text
-t = tryOrEmpty "\\" <> "t"
-
-v :: Parser Text
-v = tryOrEmpty "\\" <> "v"
 
 -- ":"{N}{O}{T}"("  return NOT;
 not_ :: Parser Text
@@ -439,7 +352,6 @@ attrib :: Parser Selector
 attrib = do
   void "["
   space
-  void $ tryOrEmpty namespace_prefix
   attrName <- ident
   space
   mAttrValue <- optional $ do
@@ -532,13 +444,13 @@ simple_selector_sequence =
         more <- many standalone
         pure $ case more of
           []        -> baseSelector
-          selectors -> And $ baseSelector : selectors
+          selectors -> And $ baseSelector :| selectors
 
       standalones = do
-        several <- some standalone
+        several <- some1 standalone
         pure $ case several of
-          [selector] -> selector
-          selectors  -> And selectors
+          selector :| [] -> selector
+          selectors -> And selectors
 
       standalone
         =   try id_
@@ -588,4 +500,4 @@ selectors_group = do
   more <- many $ comma >> space >> selector
   pure $ case more of
     []        -> first
-    selectors -> Or $ first : selectors
+    selectors -> Or $ first :| selectors
